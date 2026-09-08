@@ -10,7 +10,10 @@ const S = {
   games: [],
   tab: 'dashboard',
   filters: { q: '', status: '', game: '' },
+  keyPage: 1,
+  keySel: new Set(),
 };
+let store_allAccounts = [];
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -240,6 +243,7 @@ function renderApp() {
               ? '<span class="chip">credits <b>∞</b></span>'
               : `<span class="chip">credits <b>${esc(me.credits ?? 0)}</b></span>`
           }</div>
+          <button class="btn ghost small wfull" id="btn-passwd">Change password</button>
           <button class="btn ghost small wfull" id="btn-logout">Log out</button>
         </div>
       </aside>
@@ -249,6 +253,7 @@ function renderApp() {
   document.querySelectorAll('.nav-item').forEach((b) =>
     b.addEventListener('click', () => setTab(b.dataset.tab)));
   $('#btn-logout').addEventListener('click', () => doLogout(false));
+  $('#btn-passwd').addEventListener('click', showChangePassword);
   renderMain();
 }
 
@@ -269,6 +274,7 @@ function cardStat(label, n, cls) {
 
 async function renderMain() {
   const main = $('#main');
+  store_allAccounts = [];
   try {
     if (S.tab === 'dashboard') await renderDashboard(main);
     else if (S.tab === 'keys') await renderKeys(main);
@@ -302,6 +308,15 @@ async function renderDashboard(main) {
       ${s.accounts_resellers !== undefined ? cardStat('Resellers', s.accounts_resellers, 'cyan') : ''}
     </div>
     <div class="card">
+      <h2>👤 Reseller top-up (owner)</h2>
+      <div class="topup-row">
+        <select id="topup-user"><option value="">select account…</option></select>
+        <input id="topup-credits" type="number" min="-1000000" max="1000000" value="10" title="negative = subtract">
+        <button class="btn" id="topup-btn">Top up</button>
+      </div>
+      <div class="muted" style="font-size:.72rem;margin-top:6px">Use a negative number to deduct credits.</div>
+    </div>
+    <div class="card">
       <h2>🎮 Keys per game</h2>
       ${perGame.length
         ? perGame.map(([g, n]) => `
@@ -331,6 +346,40 @@ async function renderDashboard(main) {
     </div>`;
 
   $('#btn-copy-api').addEventListener('click', () => copyText(location.origin + '/api/auth'));
+
+  // Owner quick top-up
+  if (S.me.role === 'owner') {
+    try {
+      const accs = (await api('/accounts')).accounts || [];
+      store_allAccounts = accs;
+      const sel = $('#topup-user');
+      if (sel) {
+        for (const a of accs) {
+          if (a.role === 'owner') continue;
+          const opt = document.createElement('option');
+          opt.value = a.username;
+          opt.textContent = `${a.username} (${a.role}, ${a.credits ?? 0} cr)`;
+          sel.appendChild(opt);
+        }
+      }
+    } catch { /* non-fatal */ }
+    const btn = $('#topup-btn');
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        const u = $('#topup-user').value;
+        const n = parseInt($('#topup-credits').value, 10) || 0;
+        if (!u) return toast('Pick an account first', 'error');
+        if (!n) return toast('Enter a non-zero amount', 'error');
+        try {
+          const target = store_allAccounts.find((x) => x.username === u);
+          const cur = target ? (target.credits || 0) : 0;
+          await api('/accounts/' + encodeURIComponent(u), { method: 'PATCH', body: { credits: Math.max(0, cur + n) } });
+          toast(`Credits updated for ${u}`);
+          renderMain();
+        } catch (err) { toast(err.message, 'error'); }
+      });
+    }
+  }
 }
 
 /* ── Keys ────────────────────────────────────────────────── */
@@ -413,10 +462,21 @@ async function renderKeys(main) {
           ${S.games.map((g) => `<option value="${esc(g.id)}" ${S.filters.game === g.id ? 'selected' : ''}>${esc(g.id)}</option>`).join('')}
         </select>
       </div>
+      <div class="bulk-bar" id="bulk-bar">
+        <span id="bulk-count" class="muted">0 selected</span>
+        <button class="btn ghost" data-bulk="ban">Ban</button>
+        <button class="btn ghost" data-bulk="activate">Activate</button>
+        <button class="btn ghost" data-bulk="extend">+Days</button>
+        <button class="btn ghost" data-bulk="reset_device">Reset dev</button>
+        <button class="btn danger" data-bulk="delete">Delete</button>
+        <span style="flex:1"></span>
+        <button class="btn ghost" id="btn-export-csv">⬇ CSV</button>
+      </div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Key</th><th>Game</th><th>Owner</th><th>Status</th><th>Device</th><th>Expires</th><th>Last used</th><th>Actions</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="sel-all" title="Select page"></th><th>Key</th><th>Game</th><th>Owner</th><th>Status</th><th>Device</th><th>Expires</th><th>Last used</th><th>Actions</th></tr></thead>
         <tbody id="keys-body"></tbody>
       </table></div>
+      <div class="pagination" id="key-pager"></div>
     </div>`;
 
   const modeSel = $('#gen-mode');
@@ -451,28 +511,97 @@ async function renderKeys(main) {
     S.filters.q = $('#f-q').value.toLowerCase();
     S.filters.status = $('#f-status').value;
     S.filters.game = $('#f-game').value;
+    S.keyPage = 1;
     drawKeyRows(keys);
   };
   $('#f-q').addEventListener('input', apply);
   $('#f-status').addEventListener('change', apply);
   $('#f-game').addEventListener('change', apply);
 
+  $('#btn-export-csv').addEventListener('click', () => exportKeysCsv(keys.filter(keyVisible)));
+
+  $('#bulk-bar').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-bulk]');
+    if (!b) return;
+    const act = b.dataset.bulk;
+    const sel = [...S.keySel];
+    if (!sel.length) return toast('Select keys first (checkboxes)', 'error');
+    let days = null;
+    if (act === 'extend') {
+      const v = prompt('Days to add to each selected key:', '30');
+      if (v === null) return;
+      days = parseInt(v, 10);
+      if (!Number.isFinite(days) || days < 1) return toast('Invalid days', 'error');
+    }
+    if (act === 'delete' && !confirm(`Delete ${sel.length} key(s)?`)) return;
+    try {
+      const r = await api('/keys/bulk', { method: 'POST', body: { action: act, keys: sel, days } });
+      S.keySel.clear();
+      toast(`Bulk ${act}: ${r.updated} key(s) updated`);
+      renderMain();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+
   $('#keys-body').addEventListener('click', (e) => {
+    const copyEl = e.target.closest('[data-copy]');
+    if (copyEl) { copyText(copyEl.dataset.copy); return; }
     const b = e.target.closest('button[data-act]');
     if (!b) return;
     const k = keys.find((x) => x.key === b.dataset.key);
     if (k) handleKeyAction(k, b.dataset.act);
   });
+  $('#keys-body').addEventListener('change', (e) => {
+    const cb = e.target.closest('input.sel-key');
+    if (!cb) return;
+    if (cb.checked) S.keySel.add(cb.dataset.key);
+    else S.keySel.delete(cb.dataset.key);
+    updateBulkCount();
+  });
+  const selAll = $('#sel-all');
+  if (selAll) selAll.addEventListener('change', () => {
+    const filtered = keys.filter(keyVisible);
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    const page = Math.min(Math.max(1, S.keyPage), totalPages);
+    for (const k of filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)) {
+      if (selAll.checked) S.keySel.add(k.key); else S.keySel.delete(k.key);
+    }
+    drawKeyRows(keys);
+  });
 
   apply();
 }
 
+function updateBulkCount() {
+  const el = $('#bulk-count');
+  if (el) el.textContent = `${S.keySel.size} selected`;
+}
+
+function exportKeysCsv(list) {
+  if (!list.length) return toast('Nothing to export', 'error');
+  const cols = ['key', 'game', 'owner', 'status', 'device', 'expires_at', 'note', 'created_at', 'last_used', 'usage_count'];
+  const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [cols.join(',')].concat(list.map((k) => cols.map((c) => q(k[c])).join(','))).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'keys-export.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast(`Exported ${list.length} key(s)`);
+}
+
+const PAGE_SIZE = 25;
+
 function drawKeyRows(keys) {
-  const rows = keys.filter(keyVisible).map((k) => {
+  const filtered = keys.filter(keyVisible);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const page = Math.min(Math.max(1, S.keyPage), totalPages);
+  S.keyPage = page;
+  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((k) => {
     const expired = k.expires_at && Date.now() > Date.parse(k.expires_at);
     return `
     <tr>
-      <td class="mono key-text" onclick="copyText('${esc(k.key)}')" title="${esc(k.note || '')}">${esc(k.key)}</td>
+      <td><input type="checkbox" class="sel-key" data-key="${esc(k.key)}" ${S.keySel.has(k.key) ? 'checked' : ''}></td>
+      <td class="mono key-text" data-copy="${esc(k.key)}" title="${esc(k.note || '')}">${esc(k.key)}</td>
       <td>${badge(k.game, 'violet')}</td>
       <td>${esc(k.owner)}</td>
       <td>${statusBadge(k.status, expired)}</td>
@@ -490,7 +619,17 @@ function drawKeyRows(keys) {
       </div></td>
     </tr>`;
   }).join('');
-  $('#keys-body').innerHTML = rows || '<tr><td colspan="8" class="empty">No keys match.</td></tr>';
+  $('#keys-body').innerHTML = rows || '<tr><td colspan="9" class="empty">No keys match.</td></tr>';
+
+  const pager = $('#key-pager');
+  if (pager) {
+    pager.innerHTML = `
+      <button class="btn ghost small" id="pg-prev" ${page <= 1 ? 'disabled' : ''}>‹ Prev</button>
+      <span class="muted" style="font-size:.75rem" id="page-info">page ${page}/${totalPages} — ${filtered.length} key(s)</span>
+      <button class="btn ghost small" id="pg-next" ${page >= totalPages ? 'disabled' : ''}>Next ›</button>`;
+    $('#pg-prev').onclick = () => { S.keyPage--; drawKeyRows(keys); };
+    $('#pg-next').onclick = () => { S.keyPage++; drawKeyRows(keys); };
+  }
 }
 
 async function handleKeyAction(k, act) {
@@ -795,6 +934,20 @@ async function renderActivity(main) {
         <td class="mono muted" style="font-size:.72rem">${esc(a.ip || '-')}</td>
       </tr>`).join('') || '<tr><td colspan="5" class="empty">No activity.</td></tr>'}</tbody>
     </table></div></div>`;
+}
+
+/* ── Self-service password change ────────────────────────── */
+
+function showChangePassword() {
+  openModal('Change my password', `
+    <div><label>Current password</label><input name="current" type="password" required></div>
+    <div style="margin-top:10px"><label>New password (min 4)</label><input name="password" type="password" minlength="4" required></div>
+    <div style="margin-top:10px"><label>Repeat new password</label><input name="password2" type="password" minlength="4" required></div>`,
+    async (d) => {
+      if (d.password !== d.password2) throw new Error('New passwords do not match');
+      await api('/password', { method: 'POST', body: { current: d.current, password: d.password } });
+      toast('Password changed');
+    }, 'Change');
 }
 
 /* ── Boot ────────────────────────────────────────────────── */

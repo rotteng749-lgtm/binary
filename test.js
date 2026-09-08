@@ -50,7 +50,9 @@ function t(name, cond) {
   const accounts = require('./handlers/panel/accounts');
   const accountOne = require('./handlers/panel/accounts/[username].js');
   const keysApi = require('./handlers/panel/keys');
+  const keysBulk = require('./handlers/panel/keys/bulk');
   const keyOne = require('./handlers/panel/keys/[key].js');
+  const passwordApi = require('./handlers/panel/password');
   const gamesApi = require('./handlers/panel/games');
   const gameOne = require('./handlers/panel/games/[id].js');
   const activity = require('./handlers/panel/activity');
@@ -242,6 +244,72 @@ function t(name, cond) {
 
   r = await call(router, { method: 'GET', url: '/api/panel/unknown' });
   t('router: unknown route → 404', r.status === 404);
+
+  console.log('\n[13] Bulk key actions');
+  // r1Tok3 was logged out in [11] — get a fresh reseller session
+  r = await call(login, { method: 'POST', body: { username: 'res1', password: 'r1pass', device: 'dR2' } });
+  const r1Tok3b = r.body.token;
+  t('res1 fresh session for bulk tests', r.status === 200);
+
+  r = await call(keysApi, { method: 'POST', ...authed(ownerTok), body: { mode: 'random', game: 'pubg', count: 4, duration_days: 3, prefix: 'BULK' } });
+  const bulkKeys = r.body.created.map((k) => k.key);
+  t('seed 4 bulk keys', r.status === 201 && bulkKeys.length === 4);
+
+  r = await call(keysBulk, { method: 'POST', ...authed(ownerTok), body: { action: 'ban', keys: bulkKeys } });
+  t('bulk ban 4 keys', r.status === 200 && r.body.updated === 4 && r.body.skipped.length === 0);
+  t('bulk ban applied', store.findKey(bulkKeys[0]).status === 'banned' && store.findKey(bulkKeys[3]).status === 'banned');
+
+  r = await call(keysBulk, { method: 'POST', ...authed(ownerTok), body: { action: 'activate', keys: bulkKeys } });
+  t('bulk activate 4 keys', r.status === 200 && r.body.updated === 4);
+
+  r = await call(keysBulk, { method: 'POST', ...authed(ownerTok), body: { action: 'extend', keys: bulkKeys.slice(0, 2), days: 5 } });
+  t('bulk extend +5d (unactivated → duration)', r.status === 200 && store.findKey(bulkKeys[0]).duration_days === 8);
+
+  r = await call(keysBulk, { method: 'POST', ...authed(ownerTok), body: { action: 'reset_device', keys: bulkKeys } });
+  t('bulk reset device', r.status === 200 && r.body.updated === 4);
+
+  r = await call(keysBulk, { method: 'POST', ...authed(r1Tok3b), body: { action: 'ban', keys: bulkKeys } });
+  t('reseller cannot bulk-touch foreign keys (skipped)', r.status === 200 && r.body.updated === 0 && r.body.skipped.length === 4);
+
+  r = await call(keysBulk, { method: 'POST', ...authed(ownerTok), body: { action: 'delete', keys: [bulkKeys[0], bulkKeys[1], 'FAKE-KEY-1'] } });
+  t('bulk delete 2 keys + 1 fake skipped', r.status === 200 && r.body.deleted === 2 && r.body.skipped.includes('FAKE-KEY-1'));
+
+  r = await call(keysBulk, { method: 'POST', ...authed(ownerTok), body: { action: 'nuke', keys: bulkKeys } });
+  t('unknown bulk action rejected', r.status === 400);
+
+  console.log('\n[14] Self-service password change');
+  r = await call(passwordApi, { method: 'POST', ...authed(r1Tok3b), body: { current: 'wrongpass', password: 'newpass1' } });
+  t('wrong current password rejected', r.status === 401);
+
+  r = await call(passwordApi, { method: 'POST', ...authed(r1Tok3b), body: { current: 'r1pass', password: 'newpass1' } });
+  t('password change ok', r.status === 200 && r.body.ok === true);
+
+  r = await call(login, { method: 'POST', body: { username: 'res1', password: 'newpass1', device: 'dR2' } });
+  t('login works with new password', r.status === 200);
+  const r1Tok4 = r.body.token;
+
+  r = await call(login, { method: 'POST', body: { username: 'res1', password: 'r1pass', device: 'dR2' } });
+  t('old password no longer works', r.status === 401);
+
+  r = await call(passwordApi, { method: 'POST', ...authed(r1Tok4), body: { current: 'newpass1', password: 'r1pass' } });
+  t('password restored for later tests', r.status === 200);
+
+  console.log('\n[15] PBKDF2 password hashing');
+  const acc1 = store.findAccount('res1');
+  t('password stored as pbkdf2 after change', String(acc1.password).startsWith('pbkdf2$'));
+
+  console.log('\n[16] Login rate limiting');
+  let lastStatus = 0;
+  for (let i = 0; i < 12; i++) {
+    r = await call(login, { method: 'POST', body: { username: 'ratelimit', password: 'x', device: 'd' } });
+    lastStatus = r.status;
+  }
+  t('11+ failed attempts → 429', lastStatus === 429);
+
+  console.log('\n[17] Accounts list includes keys_count');
+  r = await call(accounts, authed(ownerTok));
+  const bossAcc = r.body.accounts.find((a) => a.username === 'boss');
+  t('accounts have keys_count field', r.status === 200 && bossAcc && typeof bossAcc.keys_count === 'number');
 
   console.log(`\n════════════════════════════`);
   console.log(`PASSED: ${passed}  FAILED: ${failures.length}`);

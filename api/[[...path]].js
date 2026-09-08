@@ -16,6 +16,8 @@
  *   GET       /api/panel/me | /api/panel/stats | /api/panel/activity
  *   GET/POST  /api/panel/accounts            PATCH/DELETE /api/panel/accounts/:username
  *   GET/POST  /api/panel/keys                PATCH/DELETE /api/panel/keys/:key
+ *   POST      /api/panel/keys/bulk           bulk ban/activate/delete/extend/reset
+ *   POST      /api/panel/password            change own password (any role)
  *   GET/POST  /api/panel/games               PATCH/DELETE /api/panel/games/:id
  */
 const { setCors } = require('../lib/util');
@@ -28,7 +30,9 @@ const stats = require('../handlers/panel/stats');
 const accounts = require('../handlers/panel/accounts');
 const accountOne = require('../handlers/panel/accounts/[username].js');
 const keysApi = require('../handlers/panel/keys');
+const keysBulk = require('../handlers/panel/keys/bulk');
 const keyOne = require('../handlers/panel/keys/[key].js');
+const password = require('../handlers/panel/password');
 const gamesApi = require('../handlers/panel/games');
 const gameOne = require('../handlers/panel/games/[id].js');
 const activity = require('../handlers/panel/activity');
@@ -68,8 +72,10 @@ module.exports = async (req, res) => {
         if (param) { req.query.username = safeDecode(param); return accountOne(req, res); }
         return accounts(req, res);
       case 'keys':
+        if (param === 'bulk') return keysBulk(req, res);
         if (param) { req.query.key = safeDecode(param); return keyOne(req, res); }
         return keysApi(req, res);
+      case 'password': return password(req, res);
       case 'games':
         if (param) { req.query.id = safeDecode(param); return gameOne(req, res); }
         return gamesApi(req, res);

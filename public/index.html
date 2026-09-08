@@ -338,6 +338,17 @@
   .device-hint { text-align: center; color: var(--muted); font-size: .67rem; margin-top: 16px; word-break: break-all; }
 
   .filters { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .bulk-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: rgba(255, 122, 47, .06); border: 1px dashed rgba(255, 122, 47, .30);
+    border-radius: 10px; padding: 9px 12px; margin-bottom: 12px;
+  }
+  .bulk-bar .btn { padding: 5px 11px; font-size: .74rem; }
+  .pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 14px; }
+  .pagination .btn[disabled] { opacity: .35; cursor: not-allowed; }
+  .topup-row { display: flex; gap: 8px; }
+  .topup-row select { flex: 1; }
+  .topup-row input { width: 90px; }
   .per-game-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; font-size: .82rem; }
   .per-game-bar { flex: 1; height: 8px; background: rgba(255, 255, 255, .05); border-radius: 99px; overflow: hidden; }
   .per-game-fill { height: 100%; background: linear-gradient(90deg, var(--fox), var(--gold)); border-radius: 99px; box-shadow: 0 0 12px rgba(255, 122, 47, .5); }

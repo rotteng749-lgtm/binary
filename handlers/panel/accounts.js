@@ -20,7 +20,10 @@ module.exports = async (req, res) => {
 
   /* ── LIST ── */
   if (req.method === 'GET') {
-    const list = store.scopeAccounts(me).map(store.safeAccount);
+    const list = store.scopeAccounts(me).map((a) => ({
+      ...store.safeAccount(a),
+      keys_count: store.keysCountFor(a.username),
+    }));
     // newest first
     list.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     return res.status(200).json({ accounts: list });

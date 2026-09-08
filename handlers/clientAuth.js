@@ -9,7 +9,7 @@
  * Errors come back as HTTP 200 with status:"error" so game clients parse them easily.
  */
 const store = require('../lib/store');
-const { readBody, setCors, getIp, nowIso } = require('../lib/util');
+const { readBody, setCors, getIp, nowIso, rateLimit } = require('../lib/util');
 
 module.exports = async (req, res) => {
   setCors(res);
@@ -36,6 +36,12 @@ module.exports = async (req, res) => {
   const key = String(body.key || body.license || body.login_key || '').trim();
   const device = String(body.device || body.hwid || body.uuid || body.android_id || body.serial || '').trim();
   const game = String(body.game || '').trim().toLowerCase();
+
+  // Abuse guard: 30 auth attempts / minute per key
+  const rl = rateLimit(`auth:${key || 'none'}`, 30, 60 * 1000);
+  if (!rl.ok) {
+    return res.status(200).json({ status: 'error', message: `Too many attempts — retry in ${rl.retry_after}s` });
+  }
 
   const reject = (message) => {
     store.logActivity(key || '?', 'client_login', `REJECTED — ${message} (game=${game || '-'})`, ip, {
@@ -89,7 +95,12 @@ module.exports = async (req, res) => {
     message,
     key: k.key,
     game: k.game,
+    game_name: (store.findGame(k.game) || {}).name || k.game,
+    owner: k.owner,
+    note: k.note || '',
     expired: k.expires_at,
+    duration_days: k.duration_days,
     device,
+    server_time: nowIso(),
   });
 };

@@ -4,7 +4,7 @@
  */
 const store = require('../../lib/store');
 const auth = require('../../lib/auth');
-const { readBody, setCors, getIp, hashPassword } = require('../../lib/util');
+const { readBody, setCors, getIp, hashPassword, verifyPassword, rateLimit, resetRateLimit } = require('../../lib/util');
 
 module.exports = async (req, res) => {
   setCors(res);
@@ -18,10 +18,23 @@ module.exports = async (req, res) => {
   const device = String(body.device || '').trim() || 'unknown-device';
   const ip = getIp(req);
 
+  // Brute-force guard: 10 attempts / 5 min per username
+  const rl = rateLimit(`login:${username}`, 10, 5 * 60 * 1000);
+  if (!rl.ok) {
+    store.logActivity(username || '?', 'login_failed', `Rate limited (${rl.retry_after}s left)`, ip);
+    return res.status(429).json({ error: `Too many login attempts — try again in ${rl.retry_after}s` });
+  }
+
   const acc = store.findAccount(username);
-  if (!acc || acc.password !== hashPassword(password)) {
+  if (!acc || !verifyPassword(password, acc.password)) {
     store.logActivity(username || '?', 'login_failed', 'Wrong username/password', ip);
     return res.status(401).json({ error: 'Wrong username or password' });
+  }
+  resetRateLimit(`login:${username}`);
+
+  // Upgrade legacy sha256 hashes to PBKDF2 on successful login
+  if (!String(acc.password).startsWith('pbkdf2$')) {
+    acc.password = hashPassword(password);
   }
 
   if (acc.status !== 'active') {
