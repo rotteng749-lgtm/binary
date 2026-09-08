@@ -63,20 +63,15 @@ const server = http.createServer(async (req, res) => {
 
     const url = new URL(req.url, `http://localhost:${PORT}`);
 
-    // API routes → the shared catch-all handler
-    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-      // populate req.query the way Vercel does
-      req.query = {};
-      for (const [k, v] of url.searchParams) req.query[k] = v;
-      await api(req, res);
-      return;
-    }
-
-    // everything else → static files from public/
+    // Static files from public/ (index.html, app.js, ...)
     if (serveStatic(req, res, url.pathname)) return;
 
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
+    // Everything else → the shared catch-all handler (API, custom endpoints,
+    // auth, config…). Custom endpoints live at arbitrary paths like /v1/status
+    // or /api.php, so only real static files are served above.
+    req.query = {};
+    for (const [k, v] of url.searchParams) req.query[k] = v;
+    await api(req, res);
   } catch (err) {
     console.error('[server] error:', err);
     if (!res.headersSent) {

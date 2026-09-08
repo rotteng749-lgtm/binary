@@ -30,6 +30,8 @@ Owner      full control: all keys, all accounts, games, credits, expiry, devices
 | Activity Log | Semua aksi tercatat + IP, di-scope per role |
 | **Cheat on Keys** | Tiap key bisa membawa info cheat/tutorial — ikut terkirim ke client saat login (auto-fill dari game, bisa di-override per batch) |
 | **Branding / Logo** | Owner ganti nama panel & logo emoji lewat menu Settings — dipakai di sidebar, login, title & favicon |
+| **Custom Endpoints** | Owner/admin bikin endpoint publik custom — response JSON / JS / PHP / TS / HTML, dengan placeholder `{{panel_name}}` dsb |
+| **Cheat di tabel key** | Kolom Cheat tampil langsung di daftar key |
 | **Public Config** | `GET /api/config` (tanpa login) untuk ambil nama panel + logo |
 | **PBKDF2 Passwords** | Password di-hash PBKDF2-SHA512 + salt per-password (hash lama otomatis di-upgrade saat login) |
 | **Brute-force Guard** | Panel login: 10 percobaan/5 menit per username → 429. Client auth: 30/ment per key |
@@ -117,6 +119,9 @@ Alias body yang diterima: `key`/`license`, `device`/`hwid`/`uuid`/`android_id`.
 | `/api/panel/games/:id` | PATCH/DELETE | owner (+admin utk cheat) | enable/disable, rename, edit cheat, hapus |
 | `/api/config` | GET | publik | branding panel `{panel_name, logo, version, auth}` |
 | `/api/panel/settings` | GET/PATCH | GET semua, PATCH owner | ganti `panel_name` (≤30) & `logo` (≤8) |
+| `/api/panel/custom` | GET/POST | owner/admin | list & buat custom endpoint publik |
+| `/api/panel/custom/:id` | PATCH/DELETE | owner/admin | edit / hapus custom endpoint (admin: miliknya sendiri) |
+| `/<path-custom>` | GET/POST | publik | endpoint custom yang kamu definisikan |
 | `/api/panel/activity` | GET | semua | feed aktivitas per-scope |
 
 Contoh generate:
@@ -141,6 +146,30 @@ curl -X POST https://YOUR_DOMAIN/api/panel/keys \
 - **Game permission**: reseller `games: ["*"]` = semua game, atau daftar id game tertentu.
 - **Delete game** diblok kalau masih ada key di game itu.
 - **Password** di-hash PBKDF2-SHA512 (60k iterasi) + salt acak per-password. Hash lama (sha256) tetap valid & otomatis di-upgrade saat login sukses.
+
+## Custom Endpoints (baru)
+
+Bikin endpoint publik sendiri untuk response apa pun — JSON, JavaScript, PHP, TypeScript, HTML, CSS, teks. Menu **🔗 Custom API** di sidebar (owner/admin).
+
+```bash
+# buat endpoint JSON
+curl -X POST https://YOUR_DOMAIN/api/panel/custom \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"path":"v1/status","method":"GET","content_type":"application/json",
+       "body":"{\"status\":\"ok\",\"panel\":\"{{panel_name}}\",\"time\":\"{{time}}\"}"}'
+
+# sekarang bisa diakses publik (tanpa login):
+curl https://YOUR_DOMAIN/v1/status
+# → {"status":"ok","panel":"KITSUNE","time":"2026-..."}
+```
+
+**Placeholder** yang bisa dipakai di body: `{{panel_name}}`, `{{logo}}`, `{{time}}`, `{{version}}`, `{{auth}}`, `{{path}}`, `{{method}}`.
+
+- Path bebas (mis. `v1/check`, `api.php`, `sdk.js`) — tidak boleh bentrok dengan `api`/`auth`/`config`/`panel`.
+- Method: `GET`, `POST`, atau `ANY`. Content type: JSON / JS / PHP / TS / HTML / CSS / teks.
+- Bisa disable/enable & hapus kapan saja. Data tersimpan bersama state panel.
+
+> ⚠️ Endpoint custom bersifat **publik** — jangan taruh kredensial/rahasia di dalamnya.
 
 ## Branding panel (baru)
 
@@ -210,5 +239,5 @@ Buatnya: daftar gratis di [upstash.com](https://upstash.com) → buat Redis data
 ## Test lokal
 
 ```bash
-node test.js   # 91 assertions: role, credits, one-device, expiry, scoping, games, router, bulk, rate-limit, pbkdf2, cheat, branding
+node test.js   # 103 assertions: role, credits, one-device, expiry, scoping, games, router, bulk, rate-limit, pbkdf2, cheat, branding, custom-endpoints
 ```

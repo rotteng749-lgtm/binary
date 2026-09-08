@@ -16,6 +16,8 @@
  *   POST      /api/panel/login | /api/panel/logout
  *   GET       /api/panel/me | /api/panel/stats | /api/panel/activity
  *   GET/PATCH /api/panel/settings           branding (PATCH: owner)
+ *   GET/POST  /api/panel/custom              custom public endpoints (owner/admin)
+ *   PATCH/DELETE /api/panel/custom/:id
  *   GET/POST  /api/panel/accounts            PATCH/DELETE /api/panel/accounts/:username
  *   GET/POST  /api/panel/keys                PATCH/DELETE /api/panel/keys/:key
  *   POST      /api/panel/keys/bulk           bulk ban/activate/delete/extend/reset
@@ -23,6 +25,7 @@
  *   GET/POST  /api/panel/games               PATCH/DELETE /api/panel/games/:id
  */
 const { setCors } = require('../lib/util');
+const store = require('../lib/store');
 
 const configApi = require('../handlers/config');
 const clientAuth = require('../handlers/clientAuth');
@@ -40,6 +43,8 @@ const gamesApi = require('../handlers/panel/games');
 const gameOne = require('../handlers/panel/games/[id].js');
 const activity = require('../handlers/panel/activity');
 const settings = require('../handlers/panel/settings');
+const customApi = require('../handlers/panel/custom');
+const customOne = require('../handlers/panel/custom/[id].js');
 
 function safeDecode(s) {
   try { return decodeURIComponent(s); } catch { return s; }
@@ -84,9 +89,35 @@ module.exports = async (req, res) => {
         return keysApi(req, res);
       case 'password': return password(req, res);
       case 'settings': return settings(req, res);
+      case 'custom':
+        if (param) { req.query.id = safeDecode(param); return customOne(req, res); }
+        return customApi(req, res);
       case 'games':
         if (param) { req.query.id = safeDecode(param); return gameOne(req, res); }
         return gamesApi(req, res);
+    }
+  }
+
+  // Custom public endpoints (defined by owner/admin) — served with placeholders
+  if (req.method === 'GET' || req.method === 'POST') {
+    await store.ensureLoaded();
+    const route = (store.state().custom || []).find(
+      (c) => c.active && c.path === seg.join('/') && (c.method === 'ANY' || c.method === req.method)
+    );
+    if (route) {
+      const s = store.state().settings || {};
+      const vars = {
+        panel_name: s.panel_name || 'KITSUNE',
+        logo: s.logo || '🦊',
+        time: new Date().toISOString(),
+        version: '1.3.0',
+        auth: '/api/auth',
+        path: route.path,
+        method: req.method,
+      };
+      const out = String(route.body || '').replace(/\{\{(\w+)\}\}/g, (m, k) => (k in vars ? vars[k] : m));
+      res.setHeader('Content-Type', route.content_type || 'text/plain');
+      return res.status(200).end(out);
     }
   }
 

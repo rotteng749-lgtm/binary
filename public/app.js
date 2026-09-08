@@ -219,6 +219,7 @@ function navItemsFor(role) {
     ['games', '🎮', 'Games'],
     ['activity', '⏱', 'Activity'],
   ];
+  if (role === 'owner' || role === 'admin') items.push(['custom', '🔗', 'Custom API']);
   if (role === 'owner') items.push(['settings', '⚙️', 'Settings']);
   return items;
 }
@@ -292,7 +293,8 @@ async function renderMain() {
     else if (S.tab === 'keys') await renderKeys(main);
     else if (S.tab === 'accounts') await renderAccounts(main);
     else if (S.tab === 'games') await renderGames(main);
-    else if (S.tab === 'activity') await renderActivity(main);
+    else    if (S.tab === 'activity') await renderActivity(main);
+    else if (S.tab === 'custom' && (S.me.role === 'owner' || S.me.role === 'admin')) await renderCustom(main);
     else if (S.tab === 'settings' && S.me.role === 'owner') await renderSettings(main);
   } catch (e) {
     if (e && /Session expired|Unauthorized/i.test(e.message || '')) return;
@@ -490,7 +492,7 @@ async function renderKeys(main) {
         <button class="btn ghost" id="btn-export-csv">⬇ CSV</button>
       </div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th><input type="checkbox" id="sel-all" title="Select page"></th><th>Key</th><th>Game</th><th>Owner</th><th>Status</th><th>Device</th><th>Expires</th><th>Last used</th><th>Actions</th></tr></thead>
+        <thead><tr><th><input type="checkbox" id="sel-all" title="Select page"></th><th>Key</th><th>Game</th><th>Cheat</th><th>Owner</th><th>Status</th><th>Device</th><th>Expires</th><th>Last used</th><th>Actions</th></tr></thead>
         <tbody id="keys-body"></tbody>
       </table></div>
       <div class="pagination" id="key-pager"></div>
@@ -625,8 +627,9 @@ function drawKeyRows(keys) {
     return `
     <tr>
       <td><input type="checkbox" class="sel-key" data-key="${esc(k.key)}" ${S.keySel.has(k.key) ? 'checked' : ''}></td>
-      <td class="mono key-text" data-copy="${esc(k.key)}" title="${esc(k.note || '')}">${esc(k.key)}${k.cheat ? ` <span class="muted" title="cheat: ${esc(k.cheat)}">💡</span>` : ''}</td>
+      <td class="mono key-text" data-copy="${esc(k.key)}" title="${esc(k.note || '')}">${esc(k.key)}</td>
       <td>${badge(k.game, 'violet')}</td>
+      <td class="muted" style="font-size:.72rem;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(k.cheat || '')}">${k.cheat ? esc(k.cheat) : '—'}</td>
       <td>${esc(k.owner)}</td>
       <td>${statusBadge(k.status, expired)}</td>
       <td class="mono">${k.device ? esc(k.device.slice(0, 10)) + '…' : '<span class="muted">—</span>'}</td>
@@ -643,7 +646,7 @@ function drawKeyRows(keys) {
       </div></td>
     </tr>`;
   }).join('');
-  $('#keys-body').innerHTML = rows || '<tr><td colspan="9" class="empty">No keys match.</td></tr>';
+  $('#keys-body').innerHTML = rows || '<tr><td colspan="10" class="empty">No keys match.</td></tr>';
 
   const pager = $('#key-pager');
   if (pager) {
@@ -977,6 +980,114 @@ async function renderActivity(main) {
         <td class="mono muted" style="font-size:.72rem">${esc(a.ip || '-')}</td>
       </tr>`).join('') || '<tr><td colspan="5" class="empty">No activity.</td></tr>'}</tbody>
     </table></div></div>`;
+}
+
+/* ── Custom API (owner/admin — public custom endpoints) ─── */
+
+const CUSTOM_TYPES = {
+  'application/json': 'JSON',
+  'text/javascript': 'JavaScript',
+  'application/x-php': 'PHP',
+  'text/typescript': 'TypeScript',
+  'text/html': 'HTML',
+  'text/css': 'CSS',
+  'text/plain': 'Plain text',
+};
+
+function customTypeOptions(sel) {
+  return Object.entries(CUSTOM_TYPES).map(([v, l]) =>
+    `<option value="${v}" ${v === sel ? 'selected' : ''}>${l}</option>`).join('');
+}
+
+async function renderCustom(main) {
+  const d = await api('/custom');
+  const list = d.custom || [];
+
+  main.innerHTML = setHead('🔗 Custom API', 'Endpoint publik custom — response JSON / JS / PHP / TS / HTML / teks') + `
+    <div class="card"><h2>➕ Add endpoint</h2>
+      <form id="custom-add">
+        <div class="form-grid">
+          <div><label>Path (tanpa slash awal, boleh bertingkat)</label><input name="path" required pattern="[a-z0-9_./\\-]{2,60}" placeholder="v1/check" style="font-family:ui-monospace,monospace"></div>
+          <div><label>Method</label><select name="method">
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="ANY">ANY</option>
+          </select></div>
+          <div><label>Content type</label><select name="content_type">${customTypeOptions('text/plain')}</select></div>
+        </div>
+        <div style="margin-top:12px"><label>Response body (placeholder: {{panel_name}} {{logo}} {{time}} {{version}} {{auth}} {{path}} {{method}})</label>
+          <textarea name="body" id="custom-body" placeholder="{&#10;  \"status\": \"ok\",&#10;  \"panel\": \"{{panel_name}}\",&#10;  \"time\": \"{{time}}\"&#10;}"></textarea></div>
+        <label style="margin-top:10px"><input type="checkbox" name="active" value="1" checked style="width:auto"> Active (bisa langsung diakses publik)</label>
+        <div style="margin-top:14px"><button class="btn">Create endpoint</button></div>
+      </form></div>
+    <div class="card"><h2>🗂 Endpoints <span class="muted" style="font-size:.78rem">(${list.length})</span></h2>
+      <div class="tbl-wrap" id="custom-tbl"><table>
+        <thead><tr><th>Path</th><th>Method</th><th>Type</th><th>Active</th><th>By</th><th>Actions</th></tr></thead>
+        <tbody>${list.map((c) => `<tr>
+          <td class="mono"><a href="/${esc(c.path)}" target="_blank" style="color:var(--gold)">/${esc(c.path)}</a></td>
+          <td>${badge(c.method, 'violet')}</td>
+          <td>${badge(CUSTOM_TYPES[c.content_type] || c.content_type, 'cyan')}</td>
+          <td>${c.active ? badge('active', 'ok') : badge('off', 'muted')}</td>
+          <td class="muted" style="font-size:.75rem">${esc(c.created_by)}</td>
+          <td><div class="row-btns">
+            <button class="btn ghost" data-id="${esc(c.id)}" data-act="toggle">${c.active ? 'Disable' : 'Enable'}</button>
+            <button class="btn ghost" data-id="${esc(c.id)}" data-act="edit">Edit</button>
+            <button class="btn danger" data-id="${esc(c.id)}" data-act="delete">Del</button>
+          </div></td>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty">Belum ada custom endpoint.</td></tr>'}</tbody>
+      </table></div></div>`;
+
+  $('#custom-add').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target));
+    const body = {
+      path: fd.path,
+      method: fd.method,
+      content_type: fd.content_type,
+      body: fd.body || '',
+      active: fd.active ? true : false,
+    };
+    try {
+      await api('/custom', { method: 'POST', body });
+      toast('Endpoint created');
+      renderMain();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+
+  $('#custom-tbl').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const id = b.dataset.id;
+    const c = list.find((x) => x.id === id);
+    try {
+      if (b.dataset.act === 'toggle') {
+        await api('/custom/' + encodeURIComponent(id), { method: 'PATCH', body: { active: !c.active } });
+        toast(c.active ? 'Endpoint disabled' : 'Endpoint enabled');
+        renderMain();
+      } else if (b.dataset.act === 'delete') {
+        if (!confirm(`Delete endpoint /${c.path}?`)) return;
+        await api('/custom/' + encodeURIComponent(id), { method: 'DELETE' });
+        toast('Endpoint deleted');
+        renderMain();
+      } else if (b.dataset.act === 'edit') {
+        openModal(`Edit /${c.path}`, `
+          <div class="form-grid">
+            <div><label>Path</label><input name="path" required pattern="[a-z0-9_./\\-]{2,60}" value="${esc(c.path)}" style="font-family:ui-monospace,monospace"></div>
+            <div><label>Method</label><select name="method">${['GET', 'POST', 'ANY'].map((m) => `<option value="${m}" ${m === c.method ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
+            <div><label>Content type</label><select name="content_type">${customTypeOptions(c.content_type)}</select></div>
+          </div>
+          <div style="margin-top:12px"><label>Response body</label>
+            <textarea name="body" style="min-height:130px">${esc(c.body || '')}</textarea></div>
+          <label style="margin-top:10px"><input type="checkbox" name="active" value="1" ${c.active ? 'checked' : ''} style="width:auto"> Active</label>`,
+          async (fd) => {
+            const body = { path: fd.path, method: fd.method, content_type: fd.content_type, body: fd.body || '', active: fd.active ? true : false };
+            await api('/custom/' + encodeURIComponent(id), { method: 'PATCH', body });
+            toast('Endpoint updated');
+            renderMain();
+          });
+      }
+    } catch (err) { toast(err.message, 'error'); }
+  });
 }
 
 /* ── Settings (owner — branding) ────────────────────────── */

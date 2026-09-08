@@ -17,7 +17,7 @@ function mockRes() {
     body: undefined,
     status(c) { this.statusCode = c; return this; },
     json(o) { this.body = o; return this; },
-    end() { this.body = this.body ?? ''; return this; },
+    end(b) { this.body = b !== undefined ? b : (this.body ?? ''); return this; },
     setHeader() {},
   };
 }
@@ -44,6 +44,8 @@ function t(name, cond) {
 
   const configApi = require('./handlers/config');
   const settingsApi = require('./handlers/panel/settings');
+  const customApi = require('./handlers/panel/custom');
+  const customOne = require('./handlers/panel/custom/[id].js');
   const clientAuth = require('./handlers/clientAuth');
   const login = require('./handlers/panel/login');
   const logout = require('./handlers/panel/logout');
@@ -363,6 +365,44 @@ function t(name, cond) {
 
   r = await call(router, { method: 'GET', url: '/api/config' });
   t('router: /api/config works', r.status === 200 && r.body.panel_name === 'KITSUNE');
+
+  console.log('\n[20] Custom endpoints (public custom responses)');
+  r = await call(customApi, { method: 'POST', ...authed(r1Tok3b), body: { path: 'v1/check', method: 'GET', content_type: 'text/plain', body: 'x' } });
+  t('reseller cannot create custom endpoint', r.status === 403);
+
+  const jsonBody = '{\n  "status": "ok",\n  "panel": "{{panel_name}}",\n  "time": "{{time}}"\n}';
+  r = await call(customApi, { method: 'POST', ...authed(ownerTok), body: { path: 'v1/check', method: 'GET', content_type: 'application/json', body: jsonBody } });
+  const cid = r.body.custom.id;
+  t('owner creates custom endpoint', r.status === 201 && r.body.custom.path === 'v1/check');
+
+  r = await call(router, { method: 'GET', url: '/v1/check' });
+  t('custom endpoint served publicly with placeholders', r.status === 200 && r.body.includes('"panel": "KITSUNE"'));
+
+  r = await call(customApi, { method: 'POST', ...authed(ownerTok), body: { path: 'v1/check', method: 'GET', content_type: 'text/plain', body: 'dup' } });
+  t('duplicate custom path rejected', r.status === 409);
+
+  r = await call(customApi, { method: 'POST', ...authed(ownerTok), body: { path: 'api/evil', method: 'GET', content_type: 'text/plain', body: 'x' } });
+  t('reserved prefix (api/) rejected', r.status === 400);
+
+  r = await call(customApi, { method: 'POST', ...authed(adminTok), body: { path: 'admin/route', method: 'POST', content_type: 'text/javascript', body: 'const v = {{version}};' } });
+  t('admin can create custom endpoint', r.status === 201);
+
+  r = await call(router, { method: 'POST', url: '/admin/route' });
+  t('admin JS endpoint served on POST', r.status === 200 && r.body.includes('1.3.0'));
+
+  r = await call(customOne, { method: 'PATCH', query: { id: cid }, ...authed(ownerTok), body: { active: false } });
+  t('owner disables endpoint', r.status === 200 && r.body.custom.active === false);
+  r = await call(router, { method: 'GET', url: '/v1/check' });
+  t('disabled endpoint not served', r.status === 404);
+
+  r = await call(customOne, { method: 'PATCH', query: { id: cid }, ...authed(adminTok), body: { body: 'hijack' } });
+  t('admin cannot edit owner endpoint', r.status === 404);
+
+  r = await call(customOne, { method: 'DELETE', query: { id: cid }, ...authed(ownerTok) });
+  t('owner deletes endpoint', r.status === 200 && r.body.ok === true);
+
+  r = await call(customApi, { method: 'GET', ...authed(ownerTok) });
+  t('owner lists custom endpoints (admin route remains)', r.body.custom.some((c) => c.path === 'admin/route'));
 
   console.log(`\n════════════════════════════`);
   console.log(`PASSED: ${passed}  FAILED: ${failures.length}`);
