@@ -415,6 +415,18 @@ function gamesCheckboxesHtml(name, checkedList = []) {
   </div>`;
 }
 
+function devListOf(k) {
+  return (k.devices && k.devices.length) ? k.devices : (k.device ? [k.device] : []);
+}
+
+function deviceCellOf(k) {
+  const devs = devListOf(k);
+  if (!devs.length) return '<span class="muted">—</span>';
+  const limit = (typeof k.device_limit === 'number' && k.device_limit >= 0) ? k.device_limit : 1;
+  if (limit === 1) return esc(devs[0].slice(0, 10)) + '…';
+  return `${devs.length}${limit ? `/${limit}` : '/∞'} dev`;
+}
+
 function keyStatus(k) {
   if (k.status === 'banned') return 'banned';
   if (k.expires_at && Date.now() > Date.parse(k.expires_at)) return 'expired';
@@ -449,6 +461,7 @@ async function renderKeys(main) {
             </select></div>
           <div><label>Game</label><select name="game" id="gen-game">${gameOptions()}</select></div>
           <div><label>Duration (days)</label><input name="duration_days" type="number" min="1" max="3650" value="30" required></div>
+          <div><label>Device limit (0 = unlimited)</label><input name="device_limit" type="number" min="0" max="1000" value="1" title="1 = satu device, 0 = unlimited, N = maks N device"></div>
           <div id="gen-count-wrap"><label>Count (max 100)</label><input name="count" type="number" min="1" max="100" value="1"></div>
           <div id="gen-prefix-wrap"><label>Prefix</label><input name="prefix" value="DRIP" maxlength="10"></div>
           <div><label>Note (optional)</label><input name="note" maxlength="120" placeholder="e.g. batch for shop A"></div>
@@ -518,7 +531,7 @@ async function renderKeys(main) {
   $('#gen-form').onsubmit = async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target));
-    const body = { mode: fd.mode, game: fd.game, duration_days: fd.duration_days, note: fd.note || '', cheat: fd.cheat || '' };
+    const body = { mode: fd.mode, game: fd.game, duration_days: fd.duration_days, note: fd.note || '', cheat: fd.cheat || '', device_limit: fd.device_limit };
     if (fd.mode === 'custom') body.keys = fd.keys;
     else { body.count = fd.count; body.prefix = fd.prefix; }
     try {
@@ -632,7 +645,7 @@ function drawKeyRows(keys) {
       <td class="muted" style="font-size:.72rem;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(k.cheat || '')}">${k.cheat ? esc(k.cheat) : '—'}</td>
       <td>${esc(k.owner)}</td>
       <td>${statusBadge(k.status, expired)}</td>
-      <td class="mono">${k.device ? esc(k.device.slice(0, 10)) + '…' : '<span class="muted">—</span>'}</td>
+      <td class="mono" title="${esc(devListOf(k).join('\n'))}">${deviceCellOf(k)}</td>
       <td>${k.expires_at
         ? fmtDate(k.expires_at) + `<div class="muted" style="font-size:.7rem">${fmtExpiry(k.expires_at)}</div>`
         : '<span class="muted">not activated</span>'}</td>
@@ -682,12 +695,14 @@ function showKeyEdit(k) {
       <div style="grid-column:1/-1"><label>Note</label><input name="note" value="${esc(k.note || '')}" maxlength="120"></div>
       ${k.expires_at ? '' : `<div><label>Duration (days)</label><input name="duration_days" type="number" min="1" max="3650" value="${k.duration_days}"></div>`}
       <div><label>Game</label><select name="game">${gameOptions(k.game, true)}</select></div>
+      ${k.device_limit !== undefined ? `<div><label>Device limit (0 = unlimited)</label><input name="device_limit" type="number" min="0" max="1000" value="${k.device_limit}"></div>` : ''}
       <div style="grid-column:1/-1"><label>Cheat (dikirim ke client saat login)</label>
         <textarea name="cheat" placeholder="Tutorial / link cheat…">${esc(k.cheat || '')}</textarea></div>
     </div>`, async (fd) => {
     const body = { action: 'edit', note: fd.note, cheat: fd.cheat || '' };
     if (fd.duration_days) body.duration_days = fd.duration_days;
     if (fd.game) body.game = fd.game;
+    if (fd.device_limit !== undefined) body.device_limit = fd.device_limit;
     await api('/keys/' + encodeURIComponent(k.key), { method: 'PATCH', body });
     toast('Key updated');
     renderMain();

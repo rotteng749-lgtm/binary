@@ -31,6 +31,7 @@ Owner      full control: all keys, all accounts, games, credits, expiry, devices
 | **Cheat on Keys** | Tiap key bisa membawa info cheat/tutorial — ikut terkirim ke client saat login (auto-fill dari game, bisa di-override per batch) |
 | **Branding / Logo** | Owner ganti nama panel & logo emoji lewat menu Settings — dipakai di sidebar, login, title & favicon |
 | **Custom Endpoints** | Owner/admin bikin endpoint publik custom — response JSON / JS / PHP / TS / HTML, dengan placeholder `{{panel_name}}` dsb |
+| **Device Limit per Key** | Tiap key bisa: 1 device (default), unlimited (0), atau maks N device — diatur saat generate / edit |
 | **Cheat di tabel key** | Kolom Cheat tampil langsung di daftar key |
 | **Public Config** | `GET /api/config` (tanpa login) untuk ambil nama panel + logo |
 | **PBKDF2 Passwords** | Password di-hash PBKDF2-SHA512 + salt per-password (hash lama otomatis di-upgrade saat login) |
@@ -77,6 +78,27 @@ PANEL_SECRET = <string acak>   # kunci signing token login (disarankan diisi)
 ## Client Auth API (untuk client game)
 
 Format response sama dengan panel-panel lama (`{"status":"success","message":...}`), jadi tinggal patch URL client ke `/api/auth`.
+
+## Device Limit per Key (baru)
+
+Setiap key punya `device_limit`: **1** = satu device (default/lama), **0** = unlimited, **N** = maksimal N device.
+
+```bash
+# generate 10 key, tiap key bisa dipakai 3 device
+curl -X POST https://YOUR_DOMAIN/api/panel/keys \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"mode":"random","game":"mlbb","count":10,"duration_days":30,"device_limit":3}'
+
+# unlimited device
+curl -X POST https://YOUR_DOMAIN/api/panel/keys \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"mode":"random","game":"mlbb","count":1,"duration_days":30,"device_limit":0}'
+```
+
+- Client auth: device ke-(N+1) ditolak dengan pesan `Device limit reached (N/N) — reset device to free a slot`.
+- `reset_device` (per key atau bulk) mengosongkan semua device yang terikat.
+- `device_limit` bisa diubah kapan saja lewat Edit key. Response sukses `/api/auth` menyertakan `device_limit` & `devices_count`.
+- Kolom Device di tabel key menampilkan `2/3 dev` / `2/∞ dev` / id device (untuk limit 1).
 
 ```bash
 # health check
@@ -239,5 +261,5 @@ Buatnya: daftar gratis di [upstash.com](https://upstash.com) → buat Redis data
 ## Test lokal
 
 ```bash
-node test.js   # 103 assertions: role, credits, one-device, expiry, scoping, games, router, bulk, rate-limit, pbkdf2, cheat, branding, custom-endpoints
+node test.js   # 116 assertions: role, credits, one-device, expiry, scoping, games, router, bulk, rate-limit, pbkdf2, cheat, branding, custom-endpoints, device-limits
 ```

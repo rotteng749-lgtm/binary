@@ -67,21 +67,37 @@ module.exports = async (req, res) => {
     return reject(`Key expired on ${k.expires_at}`);
   }
 
-  // ── ONE DEVICE ACCESS ──
-  if (k.device && k.device !== device) {
-    return reject('Key already used on another device (device reset needed)');
+  // ── DEVICE POLICY ──
+  //   device_limit 1  → one device only (default, legacy behaviour)
+  //   device_limit 0  → unlimited devices
+  //   device_limit N  → up to N devices
+  const limit = (typeof k.device_limit === 'number' && k.device_limit >= 0) ? k.device_limit : 1;
+  let devices = Array.isArray(k.devices) ? k.devices : (k.device ? [k.device] : []);
+  const already = devices.includes(device);
+
+  if (!already) {
+    if (limit === 1 && devices.length > 0) {
+      return reject('Key already used on another device (device reset needed)');
+    }
+    if (limit > 1 && devices.length >= limit) {
+      return reject(`Device limit reached (${limit}/${limit}) — reset device to free a slot`);
+    }
+    // bind this device
+    devices.push(device);
+    if (limit === 0 && devices.length > 100) devices = devices.slice(-100); // cap bookkeeping
+    k.devices = devices;
+    k.device = devices[0]; // legacy field = first bound device
   }
 
   let message;
-  if (!k.device) {
-    k.device = device;
+  if (!k.activated_at) {
     k.activated_at = nowIso();
     if (!k.expires_at) {
       k.expires_at = new Date(Date.now() + (k.duration_days || 0) * 86400000).toISOString();
     }
     message = 'Device registered';
   } else {
-    message = 'Login successful';
+    message = already ? 'Login successful' : 'Device registered';
   }
 
   k.last_used = nowIso();
@@ -101,6 +117,8 @@ module.exports = async (req, res) => {
     expired: k.expires_at,
     duration_days: k.duration_days,
     device,
+    device_limit: limit,
+    devices_count: devices.length,
     cheat: k.cheat || '',
     server_time: nowIso(),
   });

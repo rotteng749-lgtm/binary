@@ -72,6 +72,7 @@ module.exports = async (req, res) => {
         break;
       case 'reset_device':
         k.device = null;
+        k.devices = [];
         results.updated++;
         break;
       case 'delete':

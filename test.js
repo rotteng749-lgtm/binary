@@ -404,6 +404,50 @@ function t(name, cond) {
   r = await call(customApi, { method: 'GET', ...authed(ownerTok) });
   t('owner lists custom endpoints (admin route remains)', r.body.custom.some((c) => c.path === 'admin/route'));
 
+  console.log('\n[21] Device limits (1 / unlimited / N devices per key)');
+  // default = 1 device (existing behaviour)
+  r = await call(clientAuth, { method: 'POST', body: { key: K1, device: 'devDefault1', game: 'mlbb' } });
+  t('key with default limit rejects 2nd device', r.body.status === 'error' && /another device/.test(r.body.message));
+
+  // N devices
+  r = await call(keysApi, { method: 'POST', ...authed(ownerTok), body: { mode: 'random', game: 'pubg', count: 1, duration_days: 5, device_limit: 3, prefix: 'DL3' } });
+  const dl3 = r.body.created[0].key;
+  t('generate key with device_limit=3', r.status === 201 && store.findKey(dl3).device_limit === 3);
+
+  r = await call(clientAuth, { method: 'POST', body: { key: dl3, device: 'dA', game: 'pubg' } });
+  t('device A binds', r.body.status === 'success' && r.body.device_limit === 3 && r.body.devices_count === 1);
+  r = await call(clientAuth, { method: 'POST', body: { key: dl3, device: 'dB', game: 'pubg' } });
+  t('device B binds (2/3)', r.body.status === 'success' && r.body.devices_count === 2);
+  r = await call(clientAuth, { method: 'POST', body: { key: dl3, device: 'dC', game: 'pubg' } });
+  t('device C binds (3/3)', r.body.status === 'success' && r.body.devices_count === 3);
+  r = await call(clientAuth, { method: 'POST', body: { key: dl3, device: 'dD', game: 'pubg' } });
+  t('device D rejected — limit reached', r.body.status === 'error' && /Device limit reached/.test(r.body.message));
+  r = await call(clientAuth, { method: 'POST', body: { key: dl3, device: 'dB', game: 'pubg' } });
+  t('existing device B still logs in', r.body.status === 'success' && r.body.message === 'Login successful');
+
+  r = await call(keyOne, { method: 'PATCH', query: { key: dl3 }, ...authed(ownerTok), body: { action: 'reset_device' } });
+  t('reset_device clears all devices', r.status === 200 && store.findKey(dl3).devices.length === 0);
+  r = await call(clientAuth, { method: 'POST', body: { key: dl3, device: 'dE', game: 'pubg' } });
+  t('new device binds after reset', r.body.status === 'success');
+
+  // unlimited
+  r = await call(keysApi, { method: 'POST', ...authed(ownerTok), body: { mode: 'random', game: 'pubg', count: 1, duration_days: 5, device_limit: 0, prefix: 'DLO' } });
+  const dl0 = r.body.created[0].key;
+  for (const d of ['u1', 'u2', 'u3', 'u4']) {
+    r = await call(clientAuth, { method: 'POST', body: { key: dl0, device: d, game: 'pubg' } });
+  }
+  t('unlimited key accepts many devices', r.body.status === 'success' && store.findKey(dl0).devices.length === 4);
+
+  // edit device_limit after creation
+  r = await call(keyOne, { method: 'PATCH', query: { key: dl0 }, ...authed(ownerTok), body: { action: 'edit', device_limit: 1 } });
+  t('edit changes device_limit to 1', r.status === 200 && r.body.key.device_limit === 1);
+  r = await call(clientAuth, { method: 'POST', body: { key: dl0, device: 'uNEW', game: 'pubg' } });
+  t('limit 1 now rejects new device', r.body.status === 'error' && /another device/.test(r.body.message));
+
+  // invalid values
+  r = await call(keysApi, { method: 'POST', ...authed(ownerTok), body: { mode: 'random', game: 'pubg', count: 1, duration_days: 5, device_limit: -2 } });
+  t('negative device_limit rejected', r.status === 400);
+
   console.log(`\n════════════════════════════`);
   console.log(`PASSED: ${passed}  FAILED: ${failures.length}`);
   if (failures.length) {

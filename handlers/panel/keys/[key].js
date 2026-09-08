@@ -57,6 +57,7 @@ module.exports = async (req, res) => {
 
       case 'reset_device':
         k.device = null;
+        k.devices = [];
         store.logActivity(me.username, 'key_reset_device', `Reset device on key ${k.key}`, getIp(req), { key_owner: k.owner });
         break;
 
@@ -75,6 +76,12 @@ module.exports = async (req, res) => {
           if (d < 1 || d > 3650) return res.status(400).json({ error: 'duration_days must be 1-3650' });
           k.duration_days = d;
           changes.push(`duration=${d}d`);
+        }
+        if (body.device_limit !== undefined) {
+          const dl = toInt(body.device_limit, k.device_limit);
+          if (dl < 0 || dl > 1000) return res.status(400).json({ error: 'device_limit must be 0 (unlimited) or 1-1000' });
+          k.device_limit = dl;
+          changes.push(`device_limit=${dl}`);
         }
         if (body.game !== undefined) {
           const gameId = String(body.game).toLowerCase();

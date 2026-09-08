@@ -51,6 +51,12 @@ module.exports = async (req, res) => {
     // Cheat info attached to the generated keys (defaults to the game's cheat)
     const cheat = String(body.cheat !== undefined ? body.cheat : (game.cheat || '')).slice(0, 2000);
 
+    // Device policy: 1 = one device, 0 = unlimited, N = up to N devices
+    const deviceLimit = toInt(body.device_limit, 1);
+    if (deviceLimit < 0 || deviceLimit > 1000) {
+      return res.status(400).json({ error: 'device_limit must be 0 (unlimited) or 1-1000' });
+    }
+
     // Build the key strings
     let names = [];
     if (mode === 'custom') {
@@ -87,6 +93,8 @@ module.exports = async (req, res) => {
         duration_days: duration,
         status: 'active',
         device: null,
+        device_limit: deviceLimit,
+        devices: [], // bound client devices
         expires_at: null, // set on first client login (activation)
         activated_at: null,
         last_used: null,
