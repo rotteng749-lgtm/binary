@@ -48,6 +48,9 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'duration_days must be 1-3650' });
     }
 
+    // Cheat info attached to the generated keys (defaults to the game's cheat)
+    const cheat = String(body.cheat !== undefined ? body.cheat : (game.cheat || '')).slice(0, 2000);
+
     // Build the key strings
     let names = [];
     if (mode === 'custom') {
@@ -79,6 +82,7 @@ module.exports = async (req, res) => {
         key: n,
         game: gameId,
         owner: me.username,
+        cheat,
         note: String(body.note || '').slice(0, 120),
         duration_days: duration,
         status: 'active',
@@ -99,7 +103,7 @@ module.exports = async (req, res) => {
     store.logActivity(
       me.username,
       'keys_generate',
-      `${mode} x${created.length} game=${gameId} duration=${duration}d${cost ? ` (cost ${cost} credits)` : ''}`,
+      `${mode} x${created.length} game=${gameId} duration=${duration}d${cost ? ` (cost ${cost} credits)` : ''}${cheat ? ' (with cheat)' : ''}`,
       getIp(req)
     );
 

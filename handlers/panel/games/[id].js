@@ -12,7 +12,7 @@ module.exports = async (req, res) => {
   setCors(res);
   if (req.method === 'OPTIONS') return res.status(204).end();
 
-  const g = await auth.requireAuth(req, ['owner']);
+  const g = await auth.requireAuth(req);
   if (g.error) return res.status(g.error[0]).json({ error: g.error[1] });
   const me = g.account;
   const db = store.state();
@@ -25,6 +25,7 @@ module.exports = async (req, res) => {
     const changes = [];
 
     if (body.status !== undefined) {
+      if (me.role !== 'owner') return res.status(403).json({ error: 'Owner only — server access control' });
       if (!['active', 'disabled'].includes(body.status)) {
         return res.status(400).json({ error: 'status must be active or disabled' });
       }
@@ -32,8 +33,16 @@ module.exports = async (req, res) => {
       changes.push(`status=${body.status}`);
     }
     if (body.name !== undefined) {
+      if (me.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
       game.name = String(body.name).trim().slice(0, 40) || game.name;
       changes.push(`name=${game.name}`);
+    }
+    if (body.cheat !== undefined) {
+      if (!['owner', 'admin'].includes(me.role)) {
+        return res.status(403).json({ error: 'Owner/Admin only' });
+      }
+      game.cheat = String(body.cheat).slice(0, 2000);
+      changes.push(`cheat=${game.cheat ? 'set' : 'cleared'}`);
     }
     if (changes.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
@@ -43,6 +52,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === 'DELETE') {
+    if (me.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
     const used = db.keys.filter((k) => k.game === game.id).length;
     if (used > 0) {
       return res.status(409).json({ error: `Game still has ${used} keys — delete or move them first` });

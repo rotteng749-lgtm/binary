@@ -311,6 +311,32 @@ function t(name, cond) {
   const bossAcc = r.body.accounts.find((a) => a.username === 'boss');
   t('accounts have keys_count field', r.status === 200 && bossAcc && typeof bossAcc.keys_count === 'number');
 
+  console.log('\n[18] Cheat feature (attached to keys, returned to client)');
+  r = await call(gameOne, { method: 'PATCH', query: { id: 'mlbb' }, ...authed(ownerTok), body: { cheat: 'CHEAT-DEFAULT' } });
+  t('owner sets game cheat', r.status === 200 && r.body.game.cheat === 'CHEAT-DEFAULT');
+
+  r = await call(gameOne, { method: 'PATCH', query: { id: 'mlbb' }, ...authed(adminTok), body: { cheat: 'ADMIN-EDIT' } });
+  t('admin can edit game cheat', r.status === 200 && r.body.game.cheat === 'ADMIN-EDIT');
+  r = await call(gameOne, { method: 'PATCH', query: { id: 'mlbb' }, ...authed(adminTok), body: { cheat: 'CHEAT-DEFAULT' } });
+  t('admin restores cheat', r.status === 200);
+
+  r = await call(gameOne, { method: 'PATCH', query: { id: 'mlbb' }, ...authed(r1Tok3b), body: { cheat: 'nope' } });
+  t('reseller cannot edit game cheat', r.status === 403);
+
+  r = await call(keysApi, { method: 'POST', ...authed(r1Tok3b), body: { mode: 'random', game: 'mlbb', count: 2, duration_days: 5, cheat: 'CHEAT-EXPLICIT' } });
+  const cheatKeys = r.body.created.map((k) => k.key);
+  t('key stores explicit cheat at generation', r.status === 201 && store.findKey(cheatKeys[0]).cheat === 'CHEAT-EXPLICIT');
+
+  r = await call(clientAuth, { method: 'POST', body: { key: cheatKeys[0], device: 'phCheat', game: 'mlbb' } });
+  t('client auth returns cheat on login', r.body.status === 'success' && r.body.cheat === 'CHEAT-EXPLICIT');
+
+  r = await call(keysApi, { method: 'POST', ...authed(ownerTok), body: { mode: 'random', game: 'mlbb', count: 1, duration_days: 5 } });
+  const inheritKey = r.body.created[0].key;
+  t('key without cheat inherits game cheat', store.findKey(inheritKey).cheat === 'CHEAT-DEFAULT');
+
+  r = await call(keyOne, { method: 'PATCH', query: { key: inheritKey }, ...authed(ownerTok), body: { action: 'edit', cheat: 'EDITED' } });
+  t('key edit updates cheat', r.status === 200 && r.body.key.cheat === 'EDITED');
+
   console.log(`\n════════════════════════════`);
   console.log(`PASSED: ${passed}  FAILED: ${failures.length}`);
   if (failures.length) {

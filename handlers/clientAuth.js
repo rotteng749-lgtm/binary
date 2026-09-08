@@ -101,6 +101,7 @@ module.exports = async (req, res) => {
     expired: k.expires_at,
     duration_days: k.duration_days,
     device,
+    cheat: k.cheat || '',
     server_time: nowIso(),
   });
 };

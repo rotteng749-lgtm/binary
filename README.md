@@ -28,6 +28,7 @@ Owner      full control: all keys, all accounts, games, credits, expiry, devices
 | Expired Control | Key: aktif saat login pertama. Akun: block login saat kadaluarsa |
 | Reset Devices | Reset device akun panel & device key terpisah |
 | Activity Log | Semua aksi tercatat + IP, di-scope per role |
+| **Cheat on Keys** | Tiap key bisa membawa info cheat/tutorial — ikut terkirim ke client saat login (auto-fill dari game, bisa di-override per batch) |
 | **PBKDF2 Passwords** | Password di-hash PBKDF2-SHA512 + salt per-password (hash lama otomatis di-upgrade saat login) |
 | **Brute-force Guard** | Panel login: 10 percobaan/5 menit per username → 429. Client auth: 30/ment per key |
 | **Self-service Password** | Semua role bisa ganti password sendiri (button "Change password" di sidebar) |
@@ -111,7 +112,7 @@ Alias body yang diterima: `key`/`license`, `device`/`hwid`/`uuid`/`android_id`.
 | `/api/panel/keys/:key` | PATCH/DELETE | sesuai scope | `action: ban/activate/extend/reset_device/edit` |
 | `/api/panel/password` | POST | semua | ganti password sendiri `{current, password}` |
 | `/api/panel/games` | GET/POST | GET semua, POST owner | list & tambah game |
-| `/api/panel/games/:id` | PATCH/DELETE | owner | enable/disable, rename, hapus |
+| `/api/panel/games/:id` | PATCH/DELETE | owner (+admin utk cheat) | enable/disable, rename, edit cheat, hapus |
 | `/api/panel/activity` | GET | semua | feed aktivitas per-scope |
 
 Contoh generate:
@@ -137,7 +138,28 @@ curl -X POST https://YOUR_DOMAIN/api/panel/keys \
 - **Delete game** diblok kalau masih ada key di game itu.
 - **Password** di-hash PBKDF2-SHA512 (60k iterasi) + salt acak per-password. Hash lama (sha256) tetap valid & otomatis di-upgrade saat login sukses.
 
-## Bulk actions (baru)
+## Cheat di key (baru)
+
+Tiap game punya field `cheat` (tutorial / link / instruksi). Saat generate key:
+
+- Form generate punya kolom **Cheat** — otomatis terisi dari cheat game yang dipilih (bisa diedit per batch).
+- Key menyimpan cheat-nya sendiri (`k.cheat`), jadi cheat tidak berubah walau game diedit belakangan.
+- Saat client login key lewat `/api/auth`, response sukses menyertakan `cheat` — client bisa menampilkannya.
+- Owner/Admin mengelola cheat game di halaman **Games** (tombol Cheat per baris).
+
+```bash
+# set cheat per game
+curl -X PATCH https://YOUR_DOMAIN/api/panel/games/mlbb \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"cheat":"Cara pakai: buka MLBB, login key, pilih menu cheat"}'
+
+# generate key dengan cheat custom (override game)
+curl -X POST https://YOUR_DOMAIN/api/panel/keys \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"mode":"random","game":"mlbb","count":1,"duration_days":30,"cheat":"Tutorial custom untuk batch ini"}'
+```
+
+## Bulk actions
 
 ```bash
 curl -X POST https://YOUR_DOMAIN/api/panel/keys/bulk \
@@ -168,5 +190,5 @@ Buatnya: daftar gratis di [upstash.com](https://upstash.com) → buat Redis data
 ## Test lokal
 
 ```bash
-node test.js   # 75 assertions: role, credits, one-device, expiry, scoping, games, router, bulk, rate-limit, pbkdf2
+node test.js   # 83 assertions: role, credits, one-device, expiry, scoping, games, router, bulk, rate-limit, pbkdf2, cheat
 ```

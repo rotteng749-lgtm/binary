@@ -442,6 +442,10 @@ async function renderKeys(main) {
           <label>Custom keys (one per line, max 100)</label>
           <textarea name="keys" placeholder="VIP-MLBB-CUSTOM1&#10;VIP-MLBB-CUSTOM2"></textarea>
         </div>
+        <div style="margin-top:12px">
+          <label>Cheat (tutorial / link — ikut terkirim ke client saat login key)</label>
+          <textarea name="cheat" id="gen-cheat" placeholder="e.g. Cara pakai: buka game → masukkan key → pilih menu cheat…"></textarea>
+        </div>
         <div style="margin-top:14px">
           <button class="btn">Generate</button>
           <span class="muted" style="font-size:.78rem">cost: 1 credit / key${S.me.role === 'owner' ? ' (owner: free)' : ''}</span>
@@ -489,10 +493,17 @@ async function renderKeys(main) {
   modeSel.addEventListener('change', syncMode);
   syncMode();
 
+  // Autofill cheat dari game yang dipilih (bisa diedit manual per batch)
+  const gameSel = $('#gen-game');
+  if (gameSel) gameSel.addEventListener('change', () => {
+    const g = S.games.find((x) => x.id === gameSel.value);
+    $('#gen-cheat').value = (g && g.cheat) ? g.cheat : '';
+  });
+
   $('#gen-form').onsubmit = async (e) => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target));
-    const body = { mode: fd.mode, game: fd.game, duration_days: fd.duration_days, note: fd.note || '' };
+    const body = { mode: fd.mode, game: fd.game, duration_days: fd.duration_days, note: fd.note || '', cheat: fd.cheat || '' };
     if (fd.mode === 'custom') body.keys = fd.keys;
     else { body.count = fd.count; body.prefix = fd.prefix; }
     try {
@@ -601,7 +612,7 @@ function drawKeyRows(keys) {
     return `
     <tr>
       <td><input type="checkbox" class="sel-key" data-key="${esc(k.key)}" ${S.keySel.has(k.key) ? 'checked' : ''}></td>
-      <td class="mono key-text" data-copy="${esc(k.key)}" title="${esc(k.note || '')}">${esc(k.key)}</td>
+      <td class="mono key-text" data-copy="${esc(k.key)}" title="${esc(k.note || '')}">${esc(k.key)}${k.cheat ? ` <span class="muted" title="cheat: ${esc(k.cheat)}">💡</span>` : ''}</td>
       <td>${badge(k.game, 'violet')}</td>
       <td>${esc(k.owner)}</td>
       <td>${statusBadge(k.status, expired)}</td>
@@ -655,8 +666,10 @@ function showKeyEdit(k) {
       <div style="grid-column:1/-1"><label>Note</label><input name="note" value="${esc(k.note || '')}" maxlength="120"></div>
       ${k.expires_at ? '' : `<div><label>Duration (days)</label><input name="duration_days" type="number" min="1" max="3650" value="${k.duration_days}"></div>`}
       <div><label>Game</label><select name="game">${gameOptions(k.game, true)}</select></div>
+      <div style="grid-column:1/-1"><label>Cheat (dikirim ke client saat login)</label>
+        <textarea name="cheat" placeholder="Tutorial / link cheat…">${esc(k.cheat || '')}</textarea></div>
     </div>`, async (fd) => {
-    const body = { action: 'edit', note: fd.note };
+    const body = { action: 'edit', note: fd.note, cheat: fd.cheat || '' };
     if (fd.duration_days) body.duration_days = fd.duration_days;
     if (fd.game) body.game = fd.game;
     await api('/keys/' + encodeURIComponent(k.key), { method: 'PATCH', body });
@@ -849,6 +862,7 @@ async function renderGames(main) {
   const d = await api('/games');
   const games = d.games || [];
   const isOwner = S.me.role === 'owner';
+  const canEditCheat = isOwner || S.me.role === 'admin';
 
   main.innerHTML = setHead(
     '🎮 Games',
@@ -866,17 +880,19 @@ async function renderGames(main) {
     </div>` : ''}
     <div class="card"><h2>🗂 Game list</h2>
       <div class="tbl-wrap" id="games-tbl"><table>
-        <thead><tr><th>ID</th><th>Name</th><th>Status</th><th>Keys</th>${isOwner ? '<th>Actions</th>' : ''}</tr></thead>
+        <thead><tr><th>ID</th><th>Name</th><th>Cheat</th><th>Status</th><th>Keys</th>${(isOwner || canEditCheat) ? '<th>Actions</th>' : ''}</tr></thead>
         <tbody>${games.map((g) => `<tr>
           <td class="mono">${esc(g.id)}</td>
           <td>${esc(g.name)}</td>
+          <td class="muted" style="font-size:.75rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(g.cheat || '')}">${g.cheat ? esc(g.cheat) : '—'}</td>
           <td>${g.status === 'active' ? badge('active', 'ok') : badge('disabled', 'muted')}</td>
           <td>${g.keys_count ?? 0}</td>
-          ${isOwner ? `<td><div class="row-btns">
-            <button class="btn ghost" data-id="${esc(g.id)}" data-act="toggle">${g.status === 'active' ? 'Disable' : 'Enable'}</button>
-            <button class="btn danger" data-id="${esc(g.id)}" data-act="delete">Del</button>
+          ${(isOwner || canEditCheat) ? `<td><div class="row-btns">
+            ${canEditCheat ? `<button class="btn ghost" data-id="${esc(g.id)}" data-act="cheat">Cheat</button>` : ''}
+            ${isOwner ? `<button class="btn ghost" data-id="${esc(g.id)}" data-act="toggle">${g.status === 'active' ? 'Disable' : 'Enable'}</button>
+            <button class="btn danger" data-id="${esc(g.id)}" data-act="delete">Del</button>` : ''}
           </div></td>` : ''}
-        </tr>`).join('') || '<tr><td colspan="5" class="empty">No games.</td></tr>'}</tbody>
+        </tr>`).join('') || '<tr><td colspan="6" class="empty">No games.</td></tr>'}</tbody>
       </table></div></div>`;
 
   if (isOwner) {
@@ -888,13 +904,27 @@ async function renderGames(main) {
         renderMain();
       } catch (err) { toast(err.message, 'error'); }
     });
+  }
+  if (isOwner || canEditCheat) {
     $('#games-tbl').addEventListener('click', async (e) => {
       const b = e.target.closest('button[data-act]');
       if (!b) return;
       const id = b.dataset.id;
+      const g = games.find((x) => x.id === id);
       try {
+        if (b.dataset.act === 'cheat') {
+          openModal(`Cheat — ${g.name}`, `
+            <label>Cheat (tutorial / link / instruksi pemakaian)</label>
+            <textarea name="cheat" placeholder="e.g. Cara pakai: …">${esc(g.cheat || '')}</textarea>
+            <div class="muted" style="font-size:.72rem;margin-top:6px">Kosongkan untuk menghapus. Key baru yang dibuat untuk game ini otomatis membawa cheat ini (bisa diedit saat generate).</div>`,
+            async (fd) => {
+              await api('/games/' + encodeURIComponent(id), { method: 'PATCH', body: { cheat: fd.cheat || '' } });
+              toast('Cheat saved');
+              renderMain();
+            }, 'Save');
+          return;
+        }
         if (b.dataset.act === 'toggle') {
-          const g = games.find((x) => x.id === id);
           await api('/games/' + encodeURIComponent(id), {
             method: 'PATCH',
             body: { status: g.status === 'active' ? 'disabled' : 'active' },

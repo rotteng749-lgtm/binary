@@ -66,6 +66,10 @@ module.exports = async (req, res) => {
           k.note = String(body.note).slice(0, 120);
           changes.push('note');
         }
+        if (body.cheat !== undefined) {
+          k.cheat = String(body.cheat).slice(0, 2000);
+          changes.push('cheat');
+        }
         if (body.duration_days !== undefined && !k.expires_at) {
           const d = toInt(body.duration_days, k.duration_days);
           if (d < 1 || d > 3650) return res.status(400).json({ error: 'duration_days must be 1-3650' });
