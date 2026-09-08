@@ -11,9 +11,11 @@
  * truth and data survives cold starts.
  *
  * Routes:
+ *   GET       /api/config                   public branding (no auth)
  *   GET/POST  /api/auth
  *   POST      /api/panel/login | /api/panel/logout
  *   GET       /api/panel/me | /api/panel/stats | /api/panel/activity
+ *   GET/PATCH /api/panel/settings           branding (PATCH: owner)
  *   GET/POST  /api/panel/accounts            PATCH/DELETE /api/panel/accounts/:username
  *   GET/POST  /api/panel/keys                PATCH/DELETE /api/panel/keys/:key
  *   POST      /api/panel/keys/bulk           bulk ban/activate/delete/extend/reset
@@ -22,6 +24,7 @@
  */
 const { setCors } = require('../lib/util');
 
+const configApi = require('../handlers/config');
 const clientAuth = require('../handlers/clientAuth');
 const login = require('../handlers/panel/login');
 const logout = require('../handlers/panel/logout');
@@ -36,6 +39,7 @@ const password = require('../handlers/panel/password');
 const gamesApi = require('../handlers/panel/games');
 const gameOne = require('../handlers/panel/games/[id].js');
 const activity = require('../handlers/panel/activity');
+const settings = require('../handlers/panel/settings');
 
 function safeDecode(s) {
   try { return decodeURIComponent(s); } catch { return s; }
@@ -53,6 +57,9 @@ module.exports = async (req, res) => {
   for (const [k, v] of url.searchParams) {
     if (!(k in req.query)) req.query[k] = v;
   }
+
+  // Public branding config
+  if (seg[0] === 'config' && seg.length === 1) return configApi(req, res);
 
   // Client auth API — GET health, POST key login
   if (seg[0] === 'auth' && seg.length === 1) return clientAuth(req, res);
@@ -76,6 +83,7 @@ module.exports = async (req, res) => {
         if (param) { req.query.key = safeDecode(param); return keyOne(req, res); }
         return keysApi(req, res);
       case 'password': return password(req, res);
+      case 'settings': return settings(req, res);
       case 'games':
         if (param) { req.query.id = safeDecode(param); return gameOne(req, res); }
         return gamesApi(req, res);

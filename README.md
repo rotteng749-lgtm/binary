@@ -29,6 +29,8 @@ Owner      full control: all keys, all accounts, games, credits, expiry, devices
 | Reset Devices | Reset device akun panel & device key terpisah |
 | Activity Log | Semua aksi tercatat + IP, di-scope per role |
 | **Cheat on Keys** | Tiap key bisa membawa info cheat/tutorial — ikut terkirim ke client saat login (auto-fill dari game, bisa di-override per batch) |
+| **Branding / Logo** | Owner ganti nama panel & logo emoji lewat menu Settings — dipakai di sidebar, login, title & favicon |
+| **Public Config** | `GET /api/config` (tanpa login) untuk ambil nama panel + logo |
 | **PBKDF2 Passwords** | Password di-hash PBKDF2-SHA512 + salt per-password (hash lama otomatis di-upgrade saat login) |
 | **Brute-force Guard** | Panel login: 10 percobaan/5 menit per username → 429. Client auth: 30/ment per key |
 | **Self-service Password** | Semua role bisa ganti password sendiri (button "Change password" di sidebar) |
@@ -113,6 +115,8 @@ Alias body yang diterima: `key`/`license`, `device`/`hwid`/`uuid`/`android_id`.
 | `/api/panel/password` | POST | semua | ganti password sendiri `{current, password}` |
 | `/api/panel/games` | GET/POST | GET semua, POST owner | list & tambah game |
 | `/api/panel/games/:id` | PATCH/DELETE | owner (+admin utk cheat) | enable/disable, rename, edit cheat, hapus |
+| `/api/config` | GET | publik | branding panel `{panel_name, logo, version, auth}` |
+| `/api/panel/settings` | GET/PATCH | GET semua, PATCH owner | ganti `panel_name` (≤30) & `logo` (≤8) |
 | `/api/panel/activity` | GET | semua | feed aktivitas per-scope |
 
 Contoh generate:
@@ -137,6 +141,22 @@ curl -X POST https://YOUR_DOMAIN/api/panel/keys \
 - **Game permission**: reseller `games: ["*"]` = semua game, atau daftar id game tertentu.
 - **Delete game** diblok kalau masih ada key di game itu.
 - **Password** di-hash PBKDF2-SHA512 (60k iterasi) + salt acak per-password. Hash lama (sha256) tetap valid & otomatis di-upgrade saat login sukses.
+
+## Branding panel (baru)
+
+Owner bisa mengganti **nama panel** & **logo emoji** (default 🦊) lewat menu **Settings** di sidebar, atau lewat API:
+
+```bash
+curl -X PATCH https://YOUR_DOMAIN/api/panel/settings \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"panel_name":"NEXUS","logo":"🐉"}'
+
+# client / UI ambil branding publik tanpa login
+curl https://YOUR_DOMAIN/api/config
+# → {"panel_name":"NEXUS","logo":"🐉","version":"1.2.0","auth":"/api/auth","time":"..."}
+```
+
+Logo dipakai di: sidebar, halaman login, judul tab browser, dan favicon. Perubahan langsung berlaku tanpa deploy.
 
 ## Cheat di key (baru)
 
@@ -190,5 +210,5 @@ Buatnya: daftar gratis di [upstash.com](https://upstash.com) → buat Redis data
 ## Test lokal
 
 ```bash
-node test.js   # 83 assertions: role, credits, one-device, expiry, scoping, games, router, bulk, rate-limit, pbkdf2, cheat
+node test.js   # 91 assertions: role, credits, one-device, expiry, scoping, games, router, bulk, rate-limit, pbkdf2, cheat, branding
 ```

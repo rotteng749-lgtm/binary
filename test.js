@@ -42,6 +42,8 @@ function t(name, cond) {
 (async () => {
   await store.ensureLoaded(); // seeds in-memory state
 
+  const configApi = require('./handlers/config');
+  const settingsApi = require('./handlers/panel/settings');
   const clientAuth = require('./handlers/clientAuth');
   const login = require('./handlers/panel/login');
   const logout = require('./handlers/panel/logout');
@@ -336,6 +338,31 @@ function t(name, cond) {
 
   r = await call(keyOne, { method: 'PATCH', query: { key: inheritKey }, ...authed(ownerTok), body: { action: 'edit', cheat: 'EDITED' } });
   t('key edit updates cheat', r.status === 200 && r.body.key.cheat === 'EDITED');
+
+  console.log('\n[19] Config + branding (replaceable logo)');
+  r = await call(configApi, { method: 'GET' });
+  t('public /api/config returns branding', r.status === 200 && r.body.panel_name === 'KITSUNE' && r.body.logo === '🦊');
+
+  r = await call(settingsApi, { method: 'PATCH', ...authed(r1Tok3b), body: { logo: '🐉' } });
+  t('reseller cannot change branding', r.status === 403);
+
+  r = await call(settingsApi, { method: 'PATCH', ...authed(ownerTok), body: { panel_name: 'NEXUS', logo: '🐉' } });
+  t('owner changes branding', r.status === 200 && r.body.settings.logo === '🐉');
+
+  r = await call(configApi, { method: 'GET' });
+  t('config reflects new branding', r.body.panel_name === 'NEXUS' && r.body.logo === '🐉');
+
+  r = await call(settingsApi, { method: 'GET', ...authed(ownerTok) });
+  t('settings GET works for authed roles', r.status === 200 && r.body.settings.logo === '🐉');
+
+  r = await call(settingsApi, { method: 'PATCH', ...authed(ownerTok), body: { panel_name: '', logo: '🦊' } });
+  t('empty panel_name rejected', r.status === 400);
+
+  r = await call(settingsApi, { method: 'PATCH', ...authed(ownerTok), body: { panel_name: 'KITSUNE', logo: '🦊' } });
+  t('branding restored to defaults', r.status === 200 && r.body.settings.logo === '🦊');
+
+  r = await call(router, { method: 'GET', url: '/api/config' });
+  t('router: /api/config works', r.status === 200 && r.body.panel_name === 'KITSUNE');
 
   console.log(`\n════════════════════════════`);
   console.log(`PASSED: ${passed}  FAILED: ${failures.length}`);

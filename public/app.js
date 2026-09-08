@@ -12,8 +12,19 @@ const S = {
   filters: { q: '', status: '', game: '' },
   keyPage: 1,
   keySel: new Set(),
+  config: { panel_name: 'KITSUNE', logo: '🦊' },
 };
 let store_allAccounts = [];
+
+/* Branding — panel name & logo come from GET /api/config (replaceable by owner) */
+function applyBranding() {
+  document.title = `${S.config.panel_name || 'KITSUNE'} Panel — Key Management`;
+  const fav = document.querySelector('link[rel="icon"]');
+  if (fav) {
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>${S.config.logo || '🦊'}</text></svg>`;
+    fav.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+  }
+}
 
 /* ── Helpers ─────────────────────────────────────────────── */
 
@@ -157,8 +168,8 @@ function renderLogin() {
     <div class="login-wrap">
       <div class="login-card">
         <div class="brand">
-          <div class="logo">🦊</div>
-          <div><b>KITSUNE</b><small>Key Management Panel</small></div>
+          <div class="logo">${esc(S.config.logo || '🦊')}</div>
+          <div><b>${esc(S.config.panel_name || 'KITSUNE')}</b><small>Key Management Panel</small></div>
         </div>
         <div class="login-sub">Sign in to your account</div>
         <form id="login-form">
@@ -208,6 +219,7 @@ function navItemsFor(role) {
     ['games', '🎮', 'Games'],
     ['activity', '⏱', 'Activity'],
   ];
+  if (role === 'owner') items.push(['settings', '⚙️', 'Settings']);
   return items;
 }
 
@@ -230,7 +242,7 @@ function renderApp() {
   $('#app').innerHTML = `
     <div class="layout">
       <aside class="sidebar">
-        <div class="brand"><div class="logo">🦊</div><div><b>KITSUNE</b><small>Key Management</small></div></div>
+        <div class="brand"><div class="logo">${esc(S.config.logo || '🦊')}</div><div><b>${esc(S.config.panel_name || 'KITSUNE')}</b><small>Key Management</small></div></div>
         ${nav}
         <div class="side-spacer"></div>
         <div class="user-card">
@@ -281,6 +293,7 @@ async function renderMain() {
     else if (S.tab === 'accounts') await renderAccounts(main);
     else if (S.tab === 'games') await renderGames(main);
     else if (S.tab === 'activity') await renderActivity(main);
+    else if (S.tab === 'settings' && S.me.role === 'owner') await renderSettings(main);
   } catch (e) {
     if (e && /Session expired|Unauthorized/i.test(e.message || '')) return;
     main.innerHTML = `<div class="card">⚠️ ${esc((e && e.message) || 'Failed to load')}</div>`;
@@ -966,6 +979,41 @@ async function renderActivity(main) {
     </table></div></div>`;
 }
 
+/* ── Settings (owner — branding) ────────────────────────── */
+
+async function renderSettings(main) {
+  const d = await api('/settings');
+  const s = d.settings || {};
+  main.innerHTML = setHead('⚙️ Settings', 'Branding panel — ganti nama & logo') + `
+    <div class="card"><h2>🎨 Branding</h2>
+      <form id="settings-form">
+        <div class="form-grid">
+          <div><label>Panel name</label><input name="panel_name" maxlength="30" value="${esc(s.panel_name || '')}"></div>
+          <div><label>Logo (emoji / text, max 8)</label><input name="logo" maxlength="8" value="${esc(s.logo || '')}"></div>
+        </div>
+        <div class="muted" style="font-size:.72rem;margin-top:8px">Logo dipakai di sidebar, halaman login, title tab & favicon browser.</div>
+        <div style="margin-top:14px"><button class="btn">Save branding</button></div>
+      </form></div>
+    <div class="card"><h2>ℹ️ Endpoints</h2>
+      <div class="form-grid">
+        <div><label>Panel</label><input readonly class="mono" value="${esc(location.origin)}"></div>
+        <div><label>Client auth API</label><input readonly class="mono" value="${esc(location.origin + '/api/auth')}"></div>
+        <div><label>Public config</label><input readonly class="mono" value="${esc(location.origin + '/api/config')}"></div>
+      </div></div>`;
+
+  $('#settings-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target));
+    try {
+      const d2 = await api('/settings', { method: 'PATCH', body: { panel_name: fd.panel_name, logo: fd.logo } });
+      S.config = d2.settings;
+      applyBranding();
+      toast('Branding saved');
+      renderApp();
+    } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
 /* ── Self-service password change ────────────────────────── */
 
 function showChangePassword() {
@@ -983,6 +1031,10 @@ function showChangePassword() {
 /* ── Boot ────────────────────────────────────────────────── */
 
 async function boot() {
+  try {
+    const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => null);
+    if (cfg && cfg.panel_name) { S.config = cfg; applyBranding(); }
+  } catch { /* branding optional */ }
   if (!S.token) return renderLogin();
   try {
     const d = await api('/me');
